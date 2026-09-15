@@ -24,7 +24,9 @@ import {
   Code2,
   ThumbsUp,
   TrendingUp,
-  ShieldAlert,
+  Download,
+  Mic,
+  MicOff,
 } from "lucide-react";
 
 export type InterviewState = "SETUP" | "INTERVIEW" | "FEEDBACK";
@@ -83,7 +85,6 @@ const FEEDBACK_TRIGGER_MESSAGE =
  * Formats headings, bold text, lists, and callout sections for Strengths, Areas for Improvement, and Hiring Decision.
  */
 function MarkdownScorecard({ content }: { content: string }) {
-  // Parse markdown lines into styled JSX
   const renderFormattedMarkdown = (text: string) => {
     const lines = text.split("\n");
     const elements: React.ReactNode[] = [];
@@ -108,14 +109,14 @@ function MarkdownScorecard({ content }: { content: string }) {
     lines.forEach((line, index) => {
       const trimmed = line.trim();
 
-      // Bullet points
+      // Bullet points or numbered lists
       if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || /^\d+\.\s/.test(trimmed)) {
         const itemContent = trimmed.replace(/^([-*]|\d+\.)\s*/, "");
         currentList.push(itemContent);
         return;
       }
 
-      // If not in a list, flush any pending list items
+      // Flush pending lists
       flushList(`flush-${index}`);
 
       if (!trimmed) {
@@ -123,7 +124,7 @@ function MarkdownScorecard({ content }: { content: string }) {
         return;
       }
 
-      // H1 / Title
+      // H1 Title
       if (trimmed.startsWith("# ")) {
         elements.push(
           <h1
@@ -137,7 +138,7 @@ function MarkdownScorecard({ content }: { content: string }) {
         return;
       }
 
-      // H2 / Subtitle
+      // H2 Subtitle
       if (trimmed.startsWith("## ")) {
         const title = trimmed.replace(/^##\s+/, "");
         const isStrengths = /strength/i.test(title);
@@ -172,7 +173,7 @@ function MarkdownScorecard({ content }: { content: string }) {
         return;
       }
 
-      // H3 / Sub-headings
+      // H3 Subheadings
       if (trimmed.startsWith("### ")) {
         elements.push(
           <h3
@@ -204,9 +205,7 @@ function MarkdownScorecard({ content }: { content: string }) {
     return elements;
   };
 
-  // Helper for inline bold, italic, code
   const renderInlineFormatting = (text: string) => {
-    // Regex for bold **text**, code `text`
     const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
     return parts.map((part, idx) => {
       if (part.startsWith("**") && part.endsWith("**")) {
@@ -239,24 +238,47 @@ export default function InterviewSimulatorPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [copiedScorecard, setCopiedScorecard] = useState(false);
   const [rawMarkdownMode, setRawMarkdownMode] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Vercel AI SDK useChat
   const {
     messages,
     input,
+    setInput,
     handleInputChange,
     handleSubmit,
     append,
     status,
     isLoading,
     setMessages,
+    error,
+    reload,
   } = useChat({
     api: "/api/chat",
     body: {
       jobDescription,
     },
   });
+
+  // Elapsed interview timer
+  useEffect(() => {
+    let interval: any = null;
+    if (interviewState === "INTERVIEW") {
+      interval = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [interviewState]);
+
+  const formatTimer = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -266,7 +288,6 @@ export default function InterviewSimulatorPage() {
   }, [messages, interviewState]);
 
   // Phase 4: Monitor message count.
-  // When count reaches/exceeds 10 (e.g. 5 questions + 5 answers), disable chat input and show feedback button.
   const messageCount = messages.length;
   const isInterviewLimitReached = messageCount >= 10;
 
@@ -284,6 +305,7 @@ export default function InterviewSimulatorPage() {
     }
 
     setErrorMsg("");
+    setElapsedSeconds(0);
     setInterviewState("INTERVIEW");
 
     // Initiate the interview with the hiring manager
@@ -296,8 +318,55 @@ export default function InterviewSimulatorPage() {
     }
   };
 
+  // Speech-to-text dictation toggle
+  const toggleSpeechRecognition = () => {
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => setIsRecording(true);
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      };
+      recognition.onerror = () => setIsRecording(false);
+      recognition.onend = () => setIsRecording(false);
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      console.error(e);
+      setIsRecording(false);
+    }
+  };
+
   // Phase 4: Finish & Get Feedback handler
   const handleFinishAndGetFeedback = async () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    }
     setInterviewState("FEEDBACK");
     await append({
       role: "system",
@@ -309,7 +378,18 @@ export default function InterviewSimulatorPage() {
   const handleReset = () => {
     if (confirm("Are you sure you want to reset? Current interview progress will be cleared.")) {
       setMessages([]);
+      setElapsedSeconds(0);
       setInterviewState("SETUP");
+    }
+  };
+
+  // Keyboard shortcut: Enter sends, Shift+Enter adds newline
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!isLoading && input.trim() && !isInterviewLimitReached) {
+        handleSubmit(e as any);
+      }
     }
   };
 
@@ -325,16 +405,12 @@ export default function InterviewSimulatorPage() {
 
   // Calculate interview metrics
   const userMessagesCount = messages.filter((m) => m.role === "user").length;
-  const aiMessagesCount = messages.filter((m) => m.role === "assistant").length;
 
-  // Phase 4: Detect scorecard response
-  // Check if a feedback trigger has been appended
+  // Detect scorecard response
   const hasFeedbackTriggered = messages.some(
     (m) => m.role === "system" && m.content.includes("The interview is over")
   );
 
-  // The scorecard response is the assistant message following the feedback trigger,
-  // or the latest assistant message when in FEEDBACK state
   const feedbackMessage = React.useMemo(() => {
     if (hasFeedbackTriggered) {
       const triggerIndex = messages.findIndex(
@@ -347,7 +423,6 @@ export default function InterviewSimulatorPage() {
         if (subsequentAiMsg) return subsequentAiMsg.content;
       }
     }
-    // Fallback to last AI message if in feedback state
     const lastAi = [...messages].reverse().find((m) => m.role === "assistant");
     return lastAi ? lastAi.content : null;
   }, [messages, hasFeedbackTriggered]);
@@ -357,6 +432,17 @@ export default function InterviewSimulatorPage() {
     navigator.clipboard.writeText(textToCopy);
     setCopiedScorecard(true);
     setTimeout(() => setCopiedScorecard(false), 2000);
+  };
+
+  const downloadScorecardAsMarkdown = () => {
+    if (!feedbackMessage) return;
+    const blob = new Blob([feedbackMessage], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Interview-Scorecard-${roleTitle.replace(/[^a-zA-Z0-9]/g, "-")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -545,7 +631,7 @@ export default function InterviewSimulatorPage() {
                 <button
                   type="submit"
                   disabled={!jobDescription.trim()}
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01]"
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.01] cursor-pointer"
                 >
                   <Play className="w-4 h-4 fill-current" />
                   <span>Start Interview</span>
@@ -585,6 +671,12 @@ export default function InterviewSimulatorPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Duration Timer */}
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <span>{formatTimer(elapsedSeconds)}</span>
+              </div>
+
               {/* Progress Count */}
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
                 <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
@@ -593,13 +685,13 @@ export default function InterviewSimulatorPage() {
                 </span>
               </div>
 
-              {/* View Feedback / Finish Early Option */}
+              {/* Finish Early Button */}
               {messages.length >= 2 && (
                 <button
                   type="button"
                   onClick={handleFinishAndGetFeedback}
                   disabled={isLoading}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   <Award className="w-3.5 h-3.5 text-amber-400" />
                   <span>{isInterviewLimitReached ? "Get Feedback" : "End & Get Feedback"}</span>
@@ -610,7 +702,7 @@ export default function InterviewSimulatorPage() {
                 type="button"
                 onClick={handleReset}
                 title="Reset Interview"
-                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
@@ -629,7 +721,7 @@ export default function InterviewSimulatorPage() {
               </div>
             ) : (
               messages
-                .filter((m) => m.role !== "system") // Hide internal system prompt triggers from raw chat view
+                .filter((m) => m.role !== "system")
                 .map((message) => {
                   const isAi = message.role === "assistant";
                   return (
@@ -674,6 +766,23 @@ export default function InterviewSimulatorPage() {
                 })
             )}
 
+            {/* Error banner */}
+            {error && (
+              <div className="flex items-center justify-between p-3.5 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{error.message || "Failed to communicate with Hiring Manager."}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => reload()}
+                  className="px-2.5 py-1 rounded bg-red-900/60 hover:bg-red-800 text-white font-medium text-xs cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
             {/* Typing / Streaming Indicator */}
             {(status === "submitted" || status === "streaming") && (
               <div className="flex items-start gap-3">
@@ -694,7 +803,7 @@ export default function InterviewSimulatorPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Phase 4: Input Area with 10-message threshold check */}
+          {/* Input Area */}
           <div className="p-4 bg-slate-900 border-t border-slate-800">
             {isInterviewLimitReached ? (
               /* Phase 4: Disabled chat input replaced by "Finish & Get Feedback" button */
@@ -702,7 +811,7 @@ export default function InterviewSimulatorPage() {
                 <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs">
                   <Award className="w-4 h-4 shrink-0 text-amber-400" />
                   <span>
-                    <strong>Interview limit reached (10 exchanges).</strong> The chat input has been closed. Click below to generate your final evaluation scorecard!
+                    <strong>Interview limit reached (10 exchanges).</strong> Chat input is now closed. Click below to generate your final evaluation scorecard!
                   </span>
                 </div>
 
@@ -727,21 +836,39 @@ export default function InterviewSimulatorPage() {
                 </button>
               </div>
             ) : (
-              /* Standard chat input form while under the 10-message threshold */
+              /* Standard chat input with multi-line textarea and Speech dictation */
               <div>
-                <form onSubmit={handleSubmit} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={handleInputChange}
-                    disabled={isLoading || isInterviewLimitReached}
-                    placeholder="Type your response to the hiring manager..."
-                    className="flex-1 bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
-                  />
+                <form onSubmit={handleSubmit} className="flex gap-2 items-end">
+                  <div className="relative flex-1">
+                    <textarea
+                      value={input}
+                      onChange={handleInputChange}
+                      onKeyDown={handleKeyDown}
+                      disabled={isLoading || isInterviewLimitReached}
+                      rows={2}
+                      placeholder="Type your response... (Enter to send, Shift+Enter for new line)"
+                      className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-2.5 pr-10 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none disabled:opacity-50"
+                    />
+
+                    {/* Microphone Dictation Button */}
+                    <button
+                      type="button"
+                      onClick={toggleSpeechRecognition}
+                      title={isRecording ? "Stop dictation" : "Voice dictation (Speak your answer)"}
+                      className={`absolute right-2.5 top-3 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                        isRecording
+                          ? "bg-red-500/20 text-red-400 animate-pulse"
+                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                      }`}
+                    >
+                      {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isLoading || !input.trim() || isInterviewLimitReached}
-                    className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-500/20"
+                    className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-500/20 cursor-pointer shrink-0"
                   >
                     {isLoading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -785,21 +912,32 @@ export default function InterviewSimulatorPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {feedbackMessage && (
-                  <button
-                    type="button"
-                    onClick={() => setRawMarkdownMode(!rawMarkdownMode)}
-                    className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5"
-                  >
-                    <Code2 className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{rawMarkdownMode ? "Formatted View" : "Raw Markdown"}</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setRawMarkdownMode(!rawMarkdownMode)}
+                      className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Code2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{rawMarkdownMode ? "Formatted View" : "Raw Markdown"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={downloadScorecardAsMarkdown}
+                      className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Download .md</span>
+                    </button>
+                  </>
                 )}
 
                 <button
                   type="button"
                   onClick={copyScorecardToClipboard}
                   disabled={!feedbackMessage}
-                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-40"
+                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-40 cursor-pointer"
                 >
                   {copiedScorecard ? (
                     <>
@@ -817,7 +955,7 @@ export default function InterviewSimulatorPage() {
                 <button
                   type="button"
                   onClick={() => setInterviewState("INTERVIEW")}
-                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
+                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
                   <span>Review Transcript</span>
@@ -826,7 +964,7 @@ export default function InterviewSimulatorPage() {
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="px-3 py-2 text-xs font-medium rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center gap-1.5 shadow-md shadow-blue-500/20"
+                  className="px-3 py-2 text-xs font-medium rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>New Interview</span>
@@ -851,8 +989,8 @@ export default function InterviewSimulatorPage() {
                   <Clock className="w-4 h-4" />
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400">Total Exchanges</p>
-                  <p className="text-lg font-bold text-slate-100">{messageCount}</p>
+                  <p className="text-xs text-slate-400">Total Duration</p>
+                  <p className="text-lg font-bold text-slate-100">{formatTimer(elapsedSeconds)}</p>
                 </div>
               </div>
 
@@ -903,7 +1041,7 @@ export default function InterviewSimulatorPage() {
                 </div>
               )
             ) : (
-              /* If user navigated to feedback before triggering evaluation */
+              /* If candidate navigated to feedback before triggering evaluation */
               <div className="text-center py-12 px-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/30">
                 <Award className="w-10 h-10 text-amber-500/60 mx-auto mb-3" />
                 <h4 className="text-sm font-semibold text-slate-200">
@@ -916,7 +1054,7 @@ export default function InterviewSimulatorPage() {
                   type="button"
                   onClick={handleFinishAndGetFeedback}
                   disabled={isLoading}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-medium text-xs shadow-lg shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-400 text-white font-medium text-xs shadow-lg shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isLoading ? (
                     <>
