@@ -20,6 +20,11 @@ import {
   FileCheck,
   Copy,
   Check,
+  ChevronRight,
+  Code2,
+  ThumbsUp,
+  TrendingUp,
+  ShieldAlert,
 } from "lucide-react";
 
 export type InterviewState = "SETUP" | "INTERVIEW" | "FEEDBACK";
@@ -70,11 +75,170 @@ Requirements:
   },
 ];
 
+const FEEDBACK_TRIGGER_MESSAGE =
+  "The interview is over. Based on the candidate's answers, provide a final scorecard formatted in Markdown. Include Strengths, Areas for Improvement, and a Final Hiring Decision.";
+
+/**
+ * Lightweight, zero-dependency Markdown Renderer tailored for scorecard display.
+ * Formats headings, bold text, lists, and callout sections for Strengths, Areas for Improvement, and Hiring Decision.
+ */
+function MarkdownScorecard({ content }: { content: string }) {
+  // Parse markdown lines into styled JSX
+  const renderFormattedMarkdown = (text: string) => {
+    const lines = text.split("\n");
+    const elements: React.ReactNode[] = [];
+    let currentList: string[] = [];
+
+    const flushList = (keyPrefix: string) => {
+      if (currentList.length > 0) {
+        elements.push(
+          <ul key={`${keyPrefix}-list`} className="my-2 space-y-1.5 pl-2">
+            {currentList.map((item, idx) => (
+              <li key={idx} className="flex items-start gap-2 text-slate-300 text-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-2 shrink-0" />
+                <span>{renderInlineFormatting(item)}</span>
+              </li>
+            ))}
+          </ul>
+        );
+        currentList = [];
+      }
+    };
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+
+      // Bullet points
+      if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || /^\d+\.\s/.test(trimmed)) {
+        const itemContent = trimmed.replace(/^([-*]|\d+\.)\s*/, "");
+        currentList.push(itemContent);
+        return;
+      }
+
+      // If not in a list, flush any pending list items
+      flushList(`flush-${index}`);
+
+      if (!trimmed) {
+        elements.push(<div key={`space-${index}`} className="h-2" />);
+        return;
+      }
+
+      // H1 / Title
+      if (trimmed.startsWith("# ")) {
+        elements.push(
+          <h1
+            key={`h1-${index}`}
+            className="text-xl sm:text-2xl font-bold text-slate-100 mt-4 mb-2 pb-2 border-b border-slate-800 flex items-center gap-2"
+          >
+            <Award className="w-5 h-5 text-amber-400 shrink-0" />
+            <span>{trimmed.replace(/^#\s+/, "")}</span>
+          </h1>
+        );
+        return;
+      }
+
+      // H2 / Subtitle
+      if (trimmed.startsWith("## ")) {
+        const title = trimmed.replace(/^##\s+/, "");
+        const isStrengths = /strength/i.test(title);
+        const isImprovement = /improvement|growth|weakness|area/i.test(title);
+        const isDecision = /decision|verdict|outcome|recommendation/i.test(title);
+
+        elements.push(
+          <div
+            key={`h2-${index}`}
+            className={`mt-6 mb-3 p-3 rounded-xl border flex items-center gap-2.5 ${
+              isStrengths
+                ? "bg-emerald-950/30 border-emerald-800/50 text-emerald-300"
+                : isImprovement
+                ? "bg-amber-950/30 border-amber-800/50 text-amber-300"
+                : isDecision
+                ? "bg-blue-950/40 border-blue-700/50 text-blue-200"
+                : "bg-slate-800/60 border-slate-700/60 text-slate-200"
+            }`}
+          >
+            {isStrengths ? (
+              <ThumbsUp className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : isImprovement ? (
+              <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : isDecision ? (
+              <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+            ) : (
+              <Sparkles className="w-4 h-4 text-slate-400 shrink-0" />
+            )}
+            <h2 className="text-base font-semibold">{title}</h2>
+          </div>
+        );
+        return;
+      }
+
+      // H3 / Sub-headings
+      if (trimmed.startsWith("### ")) {
+        elements.push(
+          <h3
+            key={`h3-${index}`}
+            className="text-sm font-semibold text-slate-200 mt-3 mb-1.5 flex items-center gap-1.5"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-blue-400" />
+            <span>{trimmed.replace(/^###\s+/, "")}</span>
+          </h3>
+        );
+        return;
+      }
+
+      // Horizontal dividers
+      if (trimmed === "---" || trimmed === "***") {
+        elements.push(<hr key={`hr-${index}`} className="my-4 border-slate-800" />);
+        return;
+      }
+
+      // Regular paragraph
+      elements.push(
+        <p key={`p-${index}`} className="text-sm text-slate-300 leading-relaxed my-1">
+          {renderInlineFormatting(trimmed)}
+        </p>
+      );
+    });
+
+    flushList("final");
+    return elements;
+  };
+
+  // Helper for inline bold, italic, code
+  const renderInlineFormatting = (text: string) => {
+    // Regex for bold **text**, code `text`
+    const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={idx} className="font-semibold text-slate-100">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return (
+          <code
+            key={idx}
+            className="px-1.5 py-0.5 rounded bg-slate-800 text-blue-300 text-xs font-mono"
+          >
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+      return part;
+    });
+  };
+
+  return <div className="space-y-1">{renderFormattedMarkdown(content)}</div>;
+}
+
 export default function InterviewSimulatorPage() {
   const [interviewState, setInterviewState] = useState<InterviewState>("SETUP");
   const [jobDescription, setJobDescription] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [copiedScorecard, setCopiedScorecard] = useState(false);
+  const [rawMarkdownMode, setRawMarkdownMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Vercel AI SDK useChat
@@ -101,6 +265,11 @@ export default function InterviewSimulatorPage() {
     }
   }, [messages, interviewState]);
 
+  // Phase 4: Monitor message count.
+  // When count reaches/exceeds 10 (e.g. 5 questions + 5 answers), disable chat input and show feedback button.
+  const messageCount = messages.length;
+  const isInterviewLimitReached = messageCount >= 10;
+
   // Handle starting the interview from SETUP
   const handleStartInterview = async () => {
     if (!jobDescription.trim()) {
@@ -108,20 +277,32 @@ export default function InterviewSimulatorPage() {
       return;
     }
     if (jobDescription.trim().length < 50) {
-      setErrorMsg("The Job Description is too brief. Please paste a more detailed description (at least 50 characters).");
+      setErrorMsg(
+        "The Job Description is too brief. Please paste a more detailed description (at least 50 characters)."
+      );
       return;
     }
 
     setErrorMsg("");
     setInterviewState("INTERVIEW");
 
-    // Initiate the interview if no messages yet
+    // Initiate the interview with the hiring manager
     if (messages.length === 0) {
       await append({
         role: "user",
-        content: "Hello! I am ready for the interview. Please introduce yourself and ask your first question.",
+        content:
+          "Hello! I am ready for the interview. Please introduce yourself and ask your first question.",
       });
     }
+  };
+
+  // Phase 4: Finish & Get Feedback handler
+  const handleFinishAndGetFeedback = async () => {
+    setInterviewState("FEEDBACK");
+    await append({
+      role: "system",
+      content: FEEDBACK_TRIGGER_MESSAGE,
+    });
   };
 
   // Reset interview back to SETUP
@@ -132,12 +313,7 @@ export default function InterviewSimulatorPage() {
     }
   };
 
-  // Switch to feedback view
-  const handleViewFeedback = () => {
-    setInterviewState("FEEDBACK");
-  };
-
-  // Find candidate role title from JD (first non-empty line or fallback)
+  // Find candidate role title from JD
   const roleTitle = React.useMemo(() => {
     if (!jobDescription) return "Candidate Role";
     const firstLine = jobDescription
@@ -151,11 +327,33 @@ export default function InterviewSimulatorPage() {
   const userMessagesCount = messages.filter((m) => m.role === "user").length;
   const aiMessagesCount = messages.filter((m) => m.role === "assistant").length;
 
-  // Extract feedback text (from last assistant message or placeholder)
-  const lastAiMessage = [...messages].reverse().find((m) => m.role === "assistant")?.content;
+  // Phase 4: Detect scorecard response
+  // Check if a feedback trigger has been appended
+  const hasFeedbackTriggered = messages.some(
+    (m) => m.role === "system" && m.content.includes("The interview is over")
+  );
+
+  // The scorecard response is the assistant message following the feedback trigger,
+  // or the latest assistant message when in FEEDBACK state
+  const feedbackMessage = React.useMemo(() => {
+    if (hasFeedbackTriggered) {
+      const triggerIndex = messages.findIndex(
+        (m) => m.role === "system" && m.content.includes("The interview is over")
+      );
+      if (triggerIndex !== -1) {
+        const subsequentAiMsg = messages
+          .slice(triggerIndex + 1)
+          .find((m) => m.role === "assistant");
+        if (subsequentAiMsg) return subsequentAiMsg.content;
+      }
+    }
+    // Fallback to last AI message if in feedback state
+    const lastAi = [...messages].reverse().find((m) => m.role === "assistant");
+    return lastAi ? lastAi.content : null;
+  }, [messages, hasFeedbackTriggered]);
 
   const copyScorecardToClipboard = () => {
-    const textToCopy = lastAiMessage || "No scorecard generated yet.";
+    const textToCopy = feedbackMessage || "No scorecard generated yet.";
     navigator.clipboard.writeText(textToCopy);
     setCopiedScorecard(true);
     setTimeout(() => setCopiedScorecard(false), 2000);
@@ -341,7 +539,7 @@ export default function InterviewSimulatorPage() {
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-2 text-xs text-slate-400">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Strict, one-at-a-time questions &middot; Tailored follow-ups</span>
+                  <span>Strict, one-at-a-time questions &middot; 5-question comprehensive evaluation</span>
                 </div>
 
                 <button
@@ -387,19 +585,24 @@ export default function InterviewSimulatorPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+              {/* Progress Count */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
                 <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                <span>{userMessagesCount} answers given</span>
+                <span>
+                  Exchanges: {Math.min(messageCount, 10)}/10
+                </span>
               </div>
 
-              {messages.length > 0 && (
+              {/* View Feedback / Finish Early Option */}
+              {messages.length >= 2 && (
                 <button
                   type="button"
-                  onClick={handleViewFeedback}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
+                  onClick={handleFinishAndGetFeedback}
+                  disabled={isLoading}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <Award className="w-3.5 h-3.5 text-amber-400" />
-                  <span>View Scorecard</span>
+                  <span>{isInterviewLimitReached ? "Get Feedback" : "End & Get Feedback"}</span>
                 </button>
               )}
 
@@ -420,51 +623,55 @@ export default function InterviewSimulatorPage() {
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-slate-500">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-3" />
                 <p className="text-sm font-medium text-slate-300">Connecting to Hiring Manager...</p>
-                <p className="text-xs text-slate-500 mt-1">Reviewing the job description to generate your first question.</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Reviewing the job description to formulate your initial question.
+                </p>
               </div>
             ) : (
-              messages.map((message) => {
-                const isAi = message.role === "assistant";
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex items-start gap-3 ${
-                      isAi ? "justify-start" : "justify-end"
-                    }`}
-                  >
-                    {isAi && (
-                      <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
-                        <Bot className="w-4 h-4" />
-                      </div>
-                    )}
-
+              messages
+                .filter((m) => m.role !== "system") // Hide internal system prompt triggers from raw chat view
+                .map((message) => {
+                  const isAi = message.role === "assistant";
+                  return (
                     <div
-                      className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                        isAi
-                          ? "bg-slate-800/90 text-slate-100 border border-slate-700/60 shadow-sm"
-                          : "bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-600/10"
+                      key={message.id}
+                      className={`flex items-start gap-3 ${
+                        isAi ? "justify-start" : "justify-end"
                       }`}
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={`text-[11px] font-semibold uppercase tracking-wider ${
-                            isAi ? "text-blue-400" : "text-blue-100"
-                          }`}
-                        >
-                          {isAi ? "Hiring Manager" : "You (Candidate)"}
-                        </span>
-                      </div>
-                      <div className="whitespace-pre-wrap font-sans">{message.content}</div>
-                    </div>
+                      {isAi && (
+                        <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                          <Bot className="w-4 h-4" />
+                        </div>
+                      )}
 
-                    {!isAi && (
-                      <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm">
-                        <User className="w-4 h-4" />
+                      <div
+                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                          isAi
+                            ? "bg-slate-800/90 text-slate-100 border border-slate-700/60 shadow-sm"
+                            : "bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-600/10"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={`text-[11px] font-semibold uppercase tracking-wider ${
+                              isAi ? "text-blue-400" : "text-blue-100"
+                            }`}
+                          >
+                            {isAi ? "Hiring Manager" : "You (Candidate)"}
+                          </span>
+                        </div>
+                        <div className="whitespace-pre-wrap font-sans">{message.content}</div>
                       </div>
-                    )}
-                  </div>
-                );
-              })
+
+                      {!isAi && (
+                        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm">
+                          <User className="w-4 h-4" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
             )}
 
             {/* Typing / Streaming Indicator */}
@@ -487,34 +694,69 @@ export default function InterviewSimulatorPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input Area */}
+          {/* Phase 4: Input Area with 10-message threshold check */}
           <div className="p-4 bg-slate-900 border-t border-slate-800">
-            <form onSubmit={handleSubmit} className="flex gap-2">
-              <input
-                type="text"
-                value={input}
-                onChange={handleInputChange}
-                disabled={isLoading}
-                placeholder="Type your response to the hiring manager..."
-                className="flex-1 bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={isLoading || !input.trim()}
-                className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-500/20"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span className="hidden sm:inline">Send</span>
-              </button>
-            </form>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 px-1">
-              <span>Tip: Structure answers with the STAR method (Situation, Task, Action, Result)</span>
-              <span>Enter to send</span>
-            </div>
+            {isInterviewLimitReached ? (
+              /* Phase 4: Disabled chat input replaced by "Finish & Get Feedback" button */
+              <div className="space-y-3 animate-in fade-in duration-300">
+                <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs">
+                  <Award className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>
+                    <strong>Interview limit reached (10 exchanges).</strong> The chat input has been closed. Click below to generate your final evaluation scorecard!
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleFinishAndGetFeedback}
+                  disabled={isLoading}
+                  className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 active:scale-[0.99] disabled:opacity-50 text-white font-semibold text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Generating Scorecard...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Award className="w-4 h-4" />
+                      <span>Finish & Get Feedback</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              /* Standard chat input form while under the 10-message threshold */
+              <div>
+                <form onSubmit={handleSubmit} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={handleInputChange}
+                    disabled={isLoading || isInterviewLimitReached}
+                    placeholder="Type your response to the hiring manager..."
+                    className="flex-1 bg-slate-950/70 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isLoading || !input.trim() || isInterviewLimitReached}
+                    className="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 transition-all shadow-md shadow-blue-500/20"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span className="hidden sm:inline">Send</span>
+                  </button>
+                </form>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 px-1">
+                  <span>Tip: Structure answers with the STAR method (Situation, Task, Action, Result)</span>
+                  <span>{10 - messageCount} exchanges remaining</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -536,16 +778,28 @@ export default function InterviewSimulatorPage() {
                     Interview Evaluation Scorecard
                   </h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Role: <span className="text-slate-200 font-medium">{roleTitle}</span>
+                    Target Role: <span className="text-slate-200 font-medium">{roleTitle}</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {feedbackMessage && (
+                  <button
+                    type="button"
+                    onClick={() => setRawMarkdownMode(!rawMarkdownMode)}
+                    className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5"
+                  >
+                    <Code2 className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{rawMarkdownMode ? "Formatted View" : "Raw Markdown"}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={copyScorecardToClipboard}
-                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
+                  disabled={!feedbackMessage}
+                  className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-40"
                 >
                   {copiedScorecard ? (
                     <>
@@ -566,7 +820,7 @@ export default function InterviewSimulatorPage() {
                   className="px-3 py-2 text-xs font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
                 >
                   <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Resume Chat</span>
+                  <span>Review Transcript</span>
                 </button>
 
                 <button
@@ -598,7 +852,7 @@ export default function InterviewSimulatorPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-400">Total Exchanges</p>
-                  <p className="text-lg font-bold text-slate-100">{messages.length}</p>
+                  <p className="text-lg font-bold text-slate-100">{messageCount}</p>
                 </div>
               </div>
 
@@ -609,40 +863,73 @@ export default function InterviewSimulatorPage() {
                 <div>
                   <p className="text-xs text-slate-400">Evaluation Status</p>
                   <p className="text-sm font-bold text-emerald-400">
-                    {lastAiMessage ? "Ready" : "Pending Feedback"}
+                    {status === "streaming"
+                      ? "Streaming Scorecard..."
+                      : feedbackMessage
+                      ? "Evaluation Complete"
+                      : "Pending Feedback"}
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Detailed Scorecard Content */}
+          {/* Phase 4: Scorecard Evaluation Stream & Display */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl backdrop-blur-sm">
-            <h3 className="text-base font-semibold text-slate-200 mb-4 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-400" />
-              <span>Hiring Manager Assessment</span>
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-slate-200 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Hiring Manager Scorecard & Decision</span>
+              </h3>
+              {status === "streaming" && (
+                <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Streaming evaluation...</span>
+                </div>
+              )}
+            </div>
 
-            {lastAiMessage ? (
-              <div className="prose prose-invert max-w-none text-slate-300 text-sm leading-relaxed whitespace-pre-wrap font-sans bg-slate-950/60 border border-slate-800 rounded-xl p-5">
-                {lastAiMessage}
-              </div>
+            {feedbackMessage ? (
+              rawMarkdownMode ? (
+                <pre className="text-xs text-slate-300 font-mono bg-slate-950/80 p-5 rounded-xl border border-slate-800 overflow-x-auto whitespace-pre-wrap">
+                  {feedbackMessage}
+                </pre>
+              ) : (
+                <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-6">
+                  <MarkdownScorecard content={feedbackMessage} />
+                  {status === "streaming" && (
+                    <span className="inline-block w-2 h-4 bg-amber-400 animate-pulse ml-1 align-middle" />
+                  )}
+                </div>
+              )
             ) : (
+              /* If user navigated to feedback before triggering evaluation */
               <div className="text-center py-12 px-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/30">
-                <Award className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                <h4 className="text-sm font-semibold text-slate-300">
-                  No Final Feedback Generated Yet
+                <Award className="w-10 h-10 text-amber-500/60 mx-auto mb-3" />
+                <h4 className="text-sm font-semibold text-slate-200">
+                  Ready for Final Performance Evaluation
                 </h4>
-                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
-                  Complete the interview questions with the Hiring Manager, then trigger the feedback scorecard to view Strengths, Areas for Improvement, and Hiring Decision.
+                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-5">
+                  Click the button below to complete the interview. The AI Hiring Manager will review all your responses and compile a structured Markdown scorecard.
                 </p>
                 <button
                   type="button"
-                  onClick={() => setInterviewState("INTERVIEW")}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors inline-flex items-center gap-2"
+                  onClick={handleFinishAndGetFeedback}
+                  disabled={isLoading}
+                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-medium text-xs shadow-lg shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Return to Interview</span>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Generating Scorecard...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Award className="w-4 h-4" />
+                      <span>Generate Scorecard Now</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
             )}
