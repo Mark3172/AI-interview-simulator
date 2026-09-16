@@ -5,11 +5,23 @@ import { MockLanguageModelV1 } from "ai/test";
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
+interface ChatRequestBody {
+  messages: any[];
+  jobDescription?: string;
+  candidateName?: string;
+  seniority?: string;
+}
+
 /**
  * Creates an intelligent simulated Hiring Manager model when OPENAI_API_KEY is not configured.
  * This allows full testing and evaluation of the interview simulator without requiring paid credentials.
  */
-function createSimulatedHiringManager(jobDescription: string, messages: any[]): LanguageModelV1 {
+function createSimulatedHiringManager(
+  jobDescription: string,
+  messages: any[],
+  candidateName?: string,
+  seniority: string = "Mid-Level"
+): LanguageModelV1 {
   const lastMessage = messages[messages.length - 1];
   const isFeedbackTrigger =
     lastMessage?.role === "system" &&
@@ -23,12 +35,16 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
       .map((l) => l.replace(/^(Position|Role|Title|Job Title):?\s*/i, "").trim())
       .find((l) => l.length > 0) || "Candidate Position";
 
+  const greetingName = candidateName ? ` ${candidateName}` : "";
+
   let responseChunks: string[] = [];
 
   if (isFeedbackTrigger) {
     // Generate comprehensive evaluation scorecard
     responseChunks = [
       `# Candidate Evaluation Scorecard: ${roleName}\n\n`,
+      `**Candidate:** ${candidateName || "Candidate"}  \n`,
+      `**Target Seniority:** ${seniority}  \n`,
       `**Interview Date:** ${new Date().toLocaleDateString("en-US", {
         month: "long",
         day: "numeric",
@@ -38,11 +54,11 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
       `**Target Position:** ${roleName}  \n\n`,
       `---\n\n`,
       `## Executive Summary\n`,
-      `The candidate completed the full interview cycle for the **${roleName}** role. Overall, they demonstrated solid domain knowledge, thoughtful articulation of problem-solving methodologies, and strong communication skills aligned with our engineering and cultural standards.\n\n`,
+      `The candidate completed the full interview cycle for the **${seniority} ${roleName}** role. Overall, they demonstrated solid domain knowledge, thoughtful articulation of problem-solving methodologies, and strong communication skills aligned with our engineering and cultural standards.\n\n`,
       `## Strengths\n`,
       `- **Structured Problem Solving:** Articulated technical decisions clearly using structured frameworks (Situation, Task, Action, Result).\n`,
-      `- **Technical Breadth & Depth:** Demonstrated familiarity with core technologies, architectural scalability patterns, and trade-off considerations.\n`,
-      `- **Cross-Functional Communication:** Effectively explained technical challenges with clarity, showing empathy for product and team velocity.\n`,
+      `- **Technical Breadth & Depth:** Demonstrated familiarity with core technologies, architectural scalability patterns, and trade-off considerations expected at the ${seniority} level.\n`,
+      `- **Cross-Functional Communication:** Effectively explained technical challenges with clarity, showing empathy for product velocity and user impact.\n`,
       `- **Ownership Mindset:** Displayed high accountability for production systems, testing hygiene, and proactive monitoring.\n\n`,
       `## Areas for Improvement\n`,
       `- **Concrete Metrics & Impact:** Could enhance responses by incorporating specific quantitative metrics (e.g., latency reductions, percentage uptime improvements, team velocity gains).\n`,
@@ -50,7 +66,7 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
       `- **Deep-Dive Trade-Offs:** Discuss alternative technologies evaluated before settling on the chosen solution.\n\n`,
       `## Final Hiring Decision\n`,
       `**Decision:** **STRONG HIRE**\n\n`,
-      `**Recommendation:** The candidate demonstrates the requisite technical capability, maturity, and collaborative mindset for the **${roleName}** position. We recommend advancing them to the team-match and offer stage.\n`,
+      `**Recommendation:** The candidate demonstrates the requisite technical capability, maturity, and collaborative mindset for the **${roleName}** position at the **${seniority}** tier. We recommend advancing them to the team-match and offer stage.\n`,
     ];
   } else {
     // Determine the interview step based on user messages count
@@ -60,14 +76,14 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
     switch (step) {
       case 1:
         responseChunks = [
-          `Hello! I'm Alex, the Hiring Manager for the **${roleName}** role. Thank you for taking the time to speak with me today.\n\n`,
+          `Hello${greetingName}! I'm Alex, the Hiring Manager for the **${roleName}** role. Thank you for taking the time to speak with me today.\n\n`,
           `To start off our conversation: Could you walk me through a challenging technical problem you solved recently, including how you approached the root cause and the final outcome?`,
         ];
         break;
       case 2:
         responseChunks = [
-          `Thank you for detailing that experience. It's great to see your hands-on approach to debugging and resolution.\n\n`,
-          `Given the responsibilities outlined in this job description, how do you typically evaluate trade-offs between rapid product delivery and long-term architectural maintainability?`,
+          `Thank you for detailing that experience${greetingName}. It's great to see your hands-on approach to debugging and resolution.\n\n`,
+          `Given the responsibilities outlined in this job description for a ${seniority} role, how do you typically evaluate trade-offs between rapid product delivery and long-term architectural maintainability?`,
         ];
         break;
       case 3:
@@ -85,7 +101,7 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
       case 5:
       default:
         responseChunks = [
-          `Appreciate those technical specifics. For our final interview question:\n\n`,
+          `Appreciate those technical specifics${greetingName}. For our final interview question:\n\n`,
           `How do you ensure comprehensive testing (unit, integration, end-to-end) and automated security guardrails before deploying changes to critical production environments?`,
         ];
         break;
@@ -99,12 +115,10 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
       stream: new ReadableStream({
         async start(controller) {
           for (const chunk of responseChunks) {
-            // Split chunk into smaller words for realistic streaming animation
             const words = chunk.split(" ");
             for (let i = 0; i < words.length; i++) {
               const word = words[i] + (i < words.length - 1 ? " " : "");
               controller.enqueue({ type: "text-delta", textDelta: word });
-              // Small delay between tokens for realistic streaming
               await new Promise((resolve) => setTimeout(resolve, 25));
             }
           }
@@ -122,20 +136,35 @@ function createSimulatedHiringManager(jobDescription: string, messages: any[]): 
 
 export async function POST(req: Request) {
   try {
-    const { messages, jobDescription } = await req.json();
+    const body: ChatRequestBody = await req.json();
+    const { messages, jobDescription, candidateName, seniority = "Mid-Level" } = body;
 
-    const systemPrompt = `You are a strict but fair Hiring Manager. You are interviewing the user for a role based on this Job Description: ${jobDescription || "Not provided"}. 
+    if (!Array.isArray(messages)) {
+      return new Response(JSON.stringify({ error: "Invalid request: messages must be an array" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const candidateContext = candidateName ? `candidate named ${candidateName}` : "candidate";
+
+    const systemPrompt = `You are a strict but fair Hiring Manager. You are interviewing a ${candidateContext} for a ${seniority}-level role based on this Job Description: ${
+      jobDescription || "Not provided"
+    }. 
 RULES: 
-1. Introduce yourself briefly and ask the first interview question. 
+1. Introduce yourself briefly and ask the first interview question${
+      candidateName ? ` (addressing the candidate as ${candidateName})` : ""
+    }. 
 2. Ask ONLY ONE question at a time. Never ask multiple questions in a single message.
 3. Evaluate their previous answer silently, then ask a follow-up or move to a new topic.
-4. Keep your responses concise and professional.`;
+4. Calibrate your technical expectations and question depth to the ${seniority} seniority level.
+5. Keep your responses concise and professional.`;
 
     // If OPENAI_API_KEY is configured, use live OpenAI model; otherwise use intelligent simulator
     const isLive = Boolean(process.env.OPENAI_API_KEY);
     const model: LanguageModelV1 = isLive
       ? openai(process.env.OPENAI_MODEL || "gpt-4o-mini")
-      : createSimulatedHiringManager(jobDescription, messages || []);
+      : createSimulatedHiringManager(jobDescription || "", messages, candidateName, seniority);
 
     const result = streamText({
       model,
@@ -144,7 +173,6 @@ RULES:
     });
 
     const response = result.toDataStreamResponse();
-    // Signal mode in custom response header
     response.headers.set("x-ai-mode", isLive ? "live" : "simulated");
     return response;
   } catch (error: any) {
