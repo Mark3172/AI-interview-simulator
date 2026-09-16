@@ -73,12 +73,18 @@ ai-interview-simulator/
 │   ├── app/
 │   │   ├── api/
 │   │   │   └── chat/
-│   │   │       └── route.ts # Edge/Node POST endpoint with streamText
+│   │   │       └── route.ts # Edge/Node POST endpoint with streamText & simulated fallback
 │   │   ├── globals.css      # Dark-slate theme & CSS custom properties
 │   │   ├── layout.tsx       # Root layout, persistent navbar & footer
 │   │   └── page.tsx         # Tri-state client view (Setup, Interview, Feedback)
-│   └── lib/
-│       └── utils.ts         # Class name composition utility (cn)
+│   ├── components/
+│   │   └── MarkdownScorecard.tsx # Dedicated custom Markdown renderer for scorecard
+│   ├── data/
+│   │   └── sample-jobs.ts   # Multi-discipline job templates (Frontend, Backend, AI PM)
+│   ├── lib/
+│   │   └── utils.ts         # Class name composition utility (cn)
+│   └── types/
+│       └── interview.ts     # Centralized TypeScript models & interfaces
 ├── .env.example             # Environment variable template
 ├── next.config.ts           # Next.js configuration
 ├── package.json             # Scripts & dependencies
